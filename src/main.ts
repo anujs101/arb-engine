@@ -1,72 +1,51 @@
+import { Connection, PublicKey } from "@solana/web3.js";
+import { RPC_HTTP } from "./config";
+import { fetchRaydiumPool } from "./ingestion/raydiumPool";
+import { subscribeToVault } from "./ingestion/vaultSubscriber";
 import { PoolState } from "./types";
-import { detectArbitrage } from "./detector/spread";
-import { findOptimalInput } from "./optimizer/ternary";
-import { logDetection } from "./logger/spreadLogger";
 
-function createMockPools(): { poolA: PoolState; poolB: PoolState } {
-  const poolA: PoolState = {
-    address: "POOL_A",
-    reserveA: 1_000_000_000_000n, // 1000 SOL (lamports)
-    reserveB: 100_000_000_000n,   // 100,000 USDC (1e6 units)
-    feeNumerator: 3n,
-    feeDenominator: 1000n,
-    lastUpdatedSlot: 1,
-    decimalsA: 9,
-    decimalsB: 6,
-  };
+const RAYDIUM_SOL_USDC =
+  "58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2";
 
-  const poolB: PoolState = {
-    address: "POOL_B",
-    reserveA: 1_000_000_000_000n, // 1000 SOL
-    reserveB: 102_000_000_000n,  // 102,000 USDC (price higher)
-    feeNumerator: 3n,
-    feeDenominator: 1000n,
-    lastUpdatedSlot: 1,
-    decimalsA: 9,
-    decimalsB: 6,
-  };
+async function main() {
+  const connection = new Connection(RPC_HTTP, "confirmed");
 
-  return { poolA, poolB };
-}
-
-function runMockTest() {
-  const { poolA, poolB } = createMockPools();
-
-  const detection = detectArbitrage(poolA, poolB);
-
-  if (!detection.direction) {
-    console.log("No arbitrage opportunity detected.");
-    return;
-  }
-
-  console.log("Detection Result:", detection);
-
-  logDetection(detection, poolA.lastUpdatedSlot, poolB.lastUpdatedSlot);
-
-  if (detection.microProfit <= 0n) {
-    console.log("Micro test not profitable. Skipping optimizer.");
-    return;
-  }
-
-  const smallerReserve =
-    poolA.reserveB < poolB.reserveA
-      ? poolA.reserveB
-      : poolB.reserveA;
-
-  const upperBound = smallerReserve / 3n;
-
-  const optimization = findOptimalInput(
-    detection.direction === "A_TO_B" ? poolA : poolB,
-    detection.direction === "A_TO_B" ? poolB : poolA,
-    0n,
-    upperBound
+  console.log("Fetching Raydium pool...");
+  const decoded = await fetchRaydiumPool(
+    connection,
+    RAYDIUM_SOL_USDC
   );
 
-  console.log("Optimization Result:", {
-    optimalInput: optimization.optimalInput.toString(),
-    profit: optimization.profit.toString(),
-    iterations: optimization.iterations,
+  console.log("Base Vault:", decoded.baseVault.toBase58());
+  console.log("Quote Vault:", decoded.quoteVault.toBase58());
+  console.log("Fee:", decoded.tradeFeeNumerator.toString(), "/", decoded.tradeFeeDenominator.toString());
+
+  const poolState: PoolState = {
+    address: RAYDIUM_SOL_USDC,
+    reserveA: 0n,
+    reserveB: 0n,
+    feeNumerator: decoded.tradeFeeNumerator,
+    feeDenominator: decoded.tradeFeeDenominator,
+    lastUpdatedSlot: 0,
+    decimalsA: 9, // SOL
+    decimalsB: 6, // USDC
+  };
+
+  subscribeToVault(connection, decoded.baseVault, (amount, slot) => {
+    poolState.reserveA = amount;
+    poolState.lastUpdatedSlot = slot;
+
+    console.log("SOL Reserve:", amount.toString(), "Slot:", slot);
   });
+
+  subscribeToVault(connection, decoded.quoteVault, (amount, slot) => {
+    poolState.reserveB = amount;
+    poolState.lastUpdatedSlot = slot;
+
+    console.log("USDC Reserve:", amount.toString(), "Slot:", slot);
+  });
+
+  console.log("Subscribed to vault updates...");
 }
 
-runMockTest();
+main().catch(console.error);
