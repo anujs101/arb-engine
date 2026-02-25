@@ -103,3 +103,25 @@ export interface RiskConfig {
   minProfit: bigint;
   maxSpreadAgeMs: number;
 }
+export type PoolType = "CPMM" | "CLMM";
+
+export interface MonitoredPool {
+  address: string;
+  type: PoolType;
+  baseMint: string;
+  quoteMint: string;
+  baseVault?: string;     // CPMM only
+  quoteVault?: string;    // CPMM only
+  decimalsA: number;
+  decimalsB: number;
+  feeRate: number;
+}
+export interface PoolModel {
+  readonly address: string
+  readonly baseMint: string
+  readonly quoteMint: string
+  readonly feeRate: number
+
+  getSpotPrice(): number
+  simulateSwap(input: bigint): bigint
+}
