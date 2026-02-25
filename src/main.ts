@@ -1,51 +1,38 @@
-import { Connection, PublicKey } from "@solana/web3.js";
-import { RPC_HTTP } from "./config";
+import { fetchSolUsdtPools } from "./indexers/raydiumApiIndexer";
 import { fetchRaydiumPool } from "./ingestion/raydiumPool";
-import { subscribeToVault } from "./ingestion/vaultSubscriber";
-import { PoolState } from "./types";
-
-const RAYDIUM_SOL_USDC =
-  "58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2";
-
+import { MonitorManager } from "./monitoring/monitorManager";
+import { Connection, PublicKey } from "@solana/web3.js";
+import { RPC_HTTP,RPC_WS } from "./config";
 async function main() {
-  const connection = new Connection(RPC_HTTP, "confirmed");
+  const connection = new Connection(RPC_HTTP, {
+    commitment: "confirmed",
+    wsEndpoint: RPC_WS,
+  });
 
-  console.log("Fetching Raydium pool...");
-  const decoded = await fetchRaydiumPool(
-    connection,
-    RAYDIUM_SOL_USDC
+  const manager = new MonitorManager(connection);
+
+  console.log("Fetching SOL/USDT pools from Raydium API...");
+  const apiPools = await fetchSolUsdtPools();
+
+  console.log(`Found ${apiPools.length} SOL/USDT pools.`);
+
+  // Fetch on-chain pool data to get vault addresses
+  const poolsWithVaults = await Promise.all(
+    apiPools.map(async (p) => {
+      const poolData = await fetchRaydiumPool(connection, p.id);
+      return {
+        address: p.id,
+        baseMint: p.baseMint,
+        quoteMint: p.quoteMint,
+        baseVault: poolData.baseVault.toBase58(),
+        quoteVault: poolData.quoteVault.toBase58(),
+      };
+    })
   );
 
-  console.log("Base Vault:", decoded.baseVault.toBase58());
-  console.log("Quote Vault:", decoded.quoteVault.toBase58());
-  console.log("Fee:", decoded.tradeFeeNumerator.toString(), "/", decoded.tradeFeeDenominator.toString());
+  await manager.initialize(poolsWithVaults);
 
-  const poolState: PoolState = {
-    address: RAYDIUM_SOL_USDC,
-    reserveA: 0n,
-    reserveB: 0n,
-    feeNumerator: decoded.tradeFeeNumerator,
-    feeDenominator: decoded.tradeFeeDenominator,
-    lastUpdatedSlot: 0,
-    decimalsA: 9, // SOL
-    decimalsB: 6, // USDC
-  };
-
-  subscribeToVault(connection, decoded.baseVault, (amount, slot) => {
-    poolState.reserveA = amount;
-    poolState.lastUpdatedSlot = slot;
-
-    console.log("SOL Reserve:", amount.toString(), "Slot:", slot);
-  });
-
-  subscribeToVault(connection, decoded.quoteVault, (amount, slot) => {
-    poolState.reserveB = amount;
-    poolState.lastUpdatedSlot = slot;
-
-    console.log("USDC Reserve:", amount.toString(), "Slot:", slot);
-  });
-
-  console.log("Subscribed to vault updates...");
+  console.log("Monitoring started.");
 }
 
 main().catch(console.error);
