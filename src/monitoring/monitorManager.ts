@@ -91,14 +91,19 @@ export class MonitorManager {
     );
 
         eventBus.emit("poolUpdate", {
-      address: pool.address,
-      type: "CPMM",
-      baseMint: pool.baseMint,
-      quoteMint: pool.quoteMint,
-      slot,
-      baseReserve: active.baseReserve,
-      quoteReserve: active.quoteReserve,
-    });
+  address: pool.address,
+  type: pool.type,
+  baseMint: pool.baseMint,
+  quoteMint: pool.quoteMint,
+  baseDecimals: pool.baseDecimals,
+  quoteDecimals: pool.quoteDecimals,
+  feeRate: pool.feeRate,
+  baseReserve: active.baseReserve,
+  quoteReserve: active.quoteReserve,
+  sqrtPriceX64: active.sqrtPriceX64,
+  liquidity: active.liquidity,
+  slot: active.lastUpdatedSlot
+});
   };
 
   const baseSubId = this.connection.onAccountChange(
@@ -180,14 +185,19 @@ export class MonitorManager {
         `CLMM ${pool.address} | slot ${ctx.slot} | price: ${price}`
       );
             eventBus.emit("poolUpdate", {
-        address: pool.address,
-        type: "CLMM",
-        baseMint: pool.baseMint,
-        quoteMint: pool.quoteMint,
-        slot: ctx.slot,
-        sqrtPriceX64: active.sqrtPriceX64,
-        liquidity: active.liquidity,
-      });
+  address: pool.address,
+  type: pool.type,
+  baseMint: pool.baseMint,
+  quoteMint: pool.quoteMint,
+  baseDecimals: pool.baseDecimals,
+  quoteDecimals: pool.quoteDecimals,
+  feeRate: pool.feeRate,
+  baseReserve: active.baseReserve,
+  quoteReserve: active.quoteReserve,
+  sqrtPriceX64: active.sqrtPriceX64,
+  liquidity: active.liquidity,
+  slot: active.lastUpdatedSlot
+});
     },
     "confirmed"
   );

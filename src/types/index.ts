@@ -108,13 +108,19 @@ export type PoolType = "CPMM" | "CLMM";
 export interface MonitoredPool {
   address: string;
   type: PoolType;
+
+  // Canonical orientation (base → quote)
   baseMint: string;
   quoteMint: string;
-  baseVault?: string;     // CPMM only
-  quoteVault?: string;    // CPMM only
-  decimalsA: number;
-  decimalsB: number;
+
+  baseDecimals: number;
+  quoteDecimals: number;
+
   feeRate: number;
+
+  // CPMM only
+  baseVault?: string;
+  quoteVault?: string;
 }
 export interface PoolModel {
   readonly address: string
