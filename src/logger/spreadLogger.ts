@@ -1,28 +1,33 @@
 import fs from "fs";
 import path from "path";
-import { DetectionResult } from "../detector/spread";
 
-const LOG_PATH = path.resolve(__dirname, "../../logs/spreads.json");
+export interface SpreadRecord {
+  timestamp: number;
+  poolA: string;
+  poolB: string;
+  spotA: number;
+  spotB: number;
+  spreadBps: number;
+}
 
-export function logDetection(
-  result: DetectionResult,
-  poolASlot: number,
-  poolBSlot: number
-) {
-  const entry = {
-  timestamp: result.timestamp,
-  direction: result.direction,
-  spreadBps: result.spreadBps.toString(),
-  microInput: result.microInput.toString(),
-  microProfit: result.microProfit.toString(),
-  profitable: result.microProfit > 0n,
-  poolASlot,
-  poolBSlot,
-};
+const LOG_DIR = path.resolve(process.cwd(), "logs");
+const LOG_FILE = path.join(LOG_DIR, "spreads.json");
 
-  fs.appendFileSync(
-    LOG_PATH,
-    JSON.stringify(entry) + "\n",
-    "utf-8"
-  );
+// Ensure logs directory exists
+function ensureLogDir() {
+  if (!fs.existsSync(LOG_DIR)) {
+    fs.mkdirSync(LOG_DIR, { recursive: true });
+  }
+}
+
+export function logSpread(record: SpreadRecord) {
+  ensureLogDir();
+
+  const line = JSON.stringify(record) + "\n";
+
+  fs.appendFile(LOG_FILE, line, (err) => {
+    if (err) {
+      console.error("Spread log write error:", err);
+    }
+  });
 }

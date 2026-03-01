@@ -131,3 +131,23 @@ export interface PoolModel {
   getSpotPrice(): number
   simulateSwap(input: bigint): bigint
 }
+export interface PoolUpdateEvent {
+  address: string;
+  type: "CPMM" | "CLMM";
+
+  baseMint: string;
+  quoteMint: string;
+
+  baseDecimals: number;
+  quoteDecimals: number;
+
+  feeRate: number;
+
+  baseReserve?: bigint;
+  quoteReserve?: bigint;
+
+  sqrtPriceX64?: bigint;
+  liquidity?: bigint;
+
+  slot: number;
+}

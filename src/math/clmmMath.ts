@@ -1,25 +1,51 @@
-export function simulateClmmSwap(
-  amountIn: number,
-  pool: PoolUpdateEvent,
-  direction: "baseToQuote" | "quoteToBase"
-): number {
+import { PoolUpdateEvent } from "../types";
 
-  const L = Number(pool.liquidity);
-  const sqrtP = Number(pool.sqrtPriceX64) / 2 ** 64;
+const Q64 = 2n ** 64n;
+
+export function simulateClmmSwap(
+  pool: PoolUpdateEvent,
+  amountIn: bigint,
+  direction: "baseToQuote" | "quoteToBase"
+): bigint {
+
+  if (!pool.sqrtPriceX64 || !pool.liquidity) return 0n;
+
+  const sqrtP = pool.sqrtPriceX64;        // Q64
+  const L = pool.liquidity;               // liquidity as bigint
+  const fee = pool.feeRate;
+
+  // apply fee first
+  const amountAfterFee = BigInt(
+    Math.floor(Number(amountIn) * (1 - fee))
+  );
+
+  if (amountAfterFee <= 0n) return 0n;
 
   if (direction === "baseToQuote") {
     // token0 in
-    const newInv = 1 / sqrtP + amountIn / L;
-    const newSqrt = 1 / newInv;
-    const dy = L * (sqrtP - newSqrt);
-    return dy * (1 - pool.feeRate);
+
+    // newSqrt = 1 / (1/sqrtP + dx/L)
+    const numerator = L * Q64;
+    const denom = (L * Q64) / sqrtP + amountAfterFee;
+    const newSqrt = numerator / denom;
+
+    const dy = (L * (sqrtP - newSqrt)) / Q64;
+
+    return dy > 0n ? dy : 0n;
   }
 
   if (direction === "quoteToBase") {
-    const newSqrt = sqrtP + amountIn / L;
-    const dx = L * (1 / sqrtP - 1 / newSqrt);
-    return dx * (1 - pool.feeRate);
+    // token1 in
+
+    const newSqrt =
+      sqrtP + (amountAfterFee * Q64) / L;
+
+    const dx =
+      (L * (newSqrt - sqrtP)) /
+      (newSqrt * sqrtP / Q64);
+
+    return dx > 0n ? dx : 0n;
   }
 
-  return 0;
+  return 0n;
 }

@@ -1,7 +1,8 @@
-import { eventBus, PoolUpdateEvent } from "./eventBus";
+import { eventBus } from "./eventBus";
+import type {PoolUpdateEvent} from "./types";
 import { SolPriceOracle } from "./oracle/solPriceOracle";
 import { simulateRoundTrip } from "./pricing/simulator";
-
+import { logSpread } from "./logger/spreadLogger";
 interface InternalState {
   [address: string]: PoolUpdateEvent;
 }
@@ -30,23 +31,45 @@ export class SpreadEngine {
     }
   }
 
-  private computeSpread(a: PoolUpdateEvent, b: PoolUpdateEvent) {
+ private computeSpread(a: PoolUpdateEvent, b: PoolUpdateEvent) {
   const spotA = this.getSpotPrice(a);
   const spotB = this.getSpotPrice(b);
-    console.log(
-  `SpotA: ${spotA}, SpotB: ${spotB}`
-);
-  if (!spotA || !spotB) return;
+
+  if (spotA == null || spotB == null) return;
   if (spotA === spotB) return;
 
   // ---------------------------------------
-  // 1️⃣ Direction Pre-check
+  // 1️⃣ Spread Calculation (bps)
+  // ---------------------------------------
+  const spreadBps =
+    ((spotA - spotB) / spotB) * 10000;
+
+  // Optional noise filter (recommended)
+  if (Math.abs(spreadBps) < 0.5) return;
+
+  // Live heartbeat
+  console.log(
+    `Spread ${a.address.slice(0,6)} → ${b.address.slice(0,6)}: ${spreadBps.toFixed(2)} bps`
+  );
+
+  // Persistent log
+  logSpread({
+    timestamp: Date.now(),
+    poolA: a.address,
+    poolB: b.address,
+    spotA,
+    spotB,
+    spreadBps,
+  });
+
+  // ---------------------------------------
+  // 2️⃣ Direction Pre-check
   // ---------------------------------------
   const buyPool = spotA < spotB ? a : b;
   const sellPool = spotA < spotB ? b : a;
 
   // ---------------------------------------
-  // 2️⃣ Compute Micro Size (USD normalized)
+  // 3️⃣ Micro Size (USD normalized)
   // ---------------------------------------
   const microUsd = this.computeMicroUsd(buyPool, sellPool);
   if (microUsd <= 0) return;
@@ -54,7 +77,7 @@ export class SpreadEngine {
   const microQuote = this.usdToQuote(microUsd);
 
   // ---------------------------------------
-  // 3️⃣ Simulate Round Trip (with pool fees)
+  // 4️⃣ Round Trip Simulation
   // ---------------------------------------
   const rawProfitQuote = simulateRoundTrip(
     BigInt(Math.floor(microQuote)),
@@ -65,37 +88,49 @@ export class SpreadEngine {
   if (rawProfitQuote <= 0n) return;
 
   const quoteDecimals = buyPool.quoteDecimals;
-  const profitQuote =
+
+  const grossUsd =
     Number(rawProfitQuote) / 10 ** quoteDecimals;
 
   // ---------------------------------------
-  // 4️⃣ Execution Cost Modeling
+  // 5️⃣ Execution Cost Modeling
   // ---------------------------------------
   const solPrice = this.solOracle.getPrice();
 
-  const txFeeSol = 0.000005;        // base tx
-  const priorityFeeSol = 0.00002;   // Jito tip (example)
+  // conservative defaults
+  const txFeeSol = 0.000005;
+  const priorityFeeSol = 0.00002;
 
   const executionCostUsd =
     (txFeeSol + priorityFeeSol) * solPrice;
 
-  const netProfitUsd = profitQuote - executionCostUsd;
+  const netUsd = grossUsd - executionCostUsd;
 
-  const executable = netProfitUsd > 0;
+  const executable = netUsd > 0;
 
-// ---------------------------------------
-// 5️⃣ Logging
-// ---------------------------------------
-const opportunity: SpreadOpportunity = {
-  buyPool: buyPool.address,
-  sellPool: sellPool.address,
-  microUsd,
-  grossUsd: profitQuote,
-  netUsd: netProfitUsd,
-  slot: Math.max(buyPool.slot, sellPool.slot),
-};
+  // ---------------------------------------
+  // 6️⃣ Emit Opportunity (Only if profitable)
+  // ---------------------------------------
+  if (executable) {
+    console.log(
+      `🔥 EXECUTABLE ARB:
+       Buy: ${buyPool.address.slice(0,6)}
+       Sell: ${sellPool.address.slice(0,6)}
+       Gross: $${grossUsd.toFixed(6)}
+       Net: $${netUsd.toFixed(6)}`
+    );
 
-eventBus.emit("spreadOpportunity", opportunity);
+    const opportunity: SpreadOpportunity = {
+      buyPool: buyPool.address,
+      sellPool: sellPool.address,
+      microUsd,
+      grossUsd,
+      netUsd,
+      slot: Math.max(buyPool.slot, sellPool.slot),
+    };
+
+    eventBus.emit("spreadOpportunity", opportunity);
+  }
 }
 
   private computeMicroUsd(
